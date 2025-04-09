@@ -46,7 +46,7 @@ from rclpy.qos_overriding_options import QoSOverridingOptions
 
 from tf2_ros import TransformBroadcaster
 from geometry_msgs.msg import Twist, TransformStamped, PoseStamped
-from go2_interfaces.msg import Go2State, IMU
+from go2_interfaces.msg import Go2State, IMU, AudioData
 from unitree_go.msg import LowState, VoxelMapCompressed, WebRtcReq
 from sensor_msgs.msg import PointCloud2, PointField, JointState, Joy
 from sensor_msgs_py import point_cloud2
@@ -72,6 +72,7 @@ class RobotBaseNode(Node):
         self.declare_parameter('conn_type', os.getenv(
             'CONN_TYPE', os.getenv('CONN_TYPE', '')))
         self.declare_parameter('enable_video', True)
+        self.declare_parameter('enable_audio', True)
         self.declare_parameter('decode_lidar', True)
         self.declare_parameter('publish_raw_voxel', False)
 
@@ -84,6 +85,8 @@ class RobotBaseNode(Node):
             'conn_type').get_parameter_value().string_value
         self.enable_video = self.get_parameter(
             'enable_video').get_parameter_value().bool_value
+        self.enable_audio = self.get_parameter(
+            'enable_audio').get_parameter_value().bool_value
         self.decode_lidar = self.get_parameter(
             'decode_lidar').get_parameter_value().bool_value
         self.publish_raw_voxel = self.get_parameter(
@@ -95,6 +98,7 @@ class RobotBaseNode(Node):
         self.get_logger().info(f"Connection type is {self.conn_type}")
         self.get_logger().info(f"Connection mode is {self.conn_mode}")
         self.get_logger().info(f"Enable video is {self.enable_video}")
+        self.get_logger().info(f"Enable audio is {self.enable_audio}")
         self.get_logger().info(f"Decode lidar is {self.decode_lidar}")
         self.get_logger().info(f"Publish raw voxel is {self.publish_raw_voxel}")
 
@@ -105,6 +109,11 @@ class RobotBaseNode(Node):
             history=QoSHistoryPolicy.KEEP_LAST,
             depth=1
         )
+        high_rate_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_ALL,
+            depth=10
+        )
 
         self.joint_pub = []
         self.go2_state_pub = []
@@ -114,6 +123,7 @@ class RobotBaseNode(Node):
         self.img_pub = []
         self.camera_info_pub = []
         self.voxel_pub = []
+        self.audio_pub = []
 
         if self.conn_mode == 'single':
             self.joint_pub.append(self.create_publisher(
@@ -143,7 +153,13 @@ class RobotBaseNode(Node):
                 self.voxel_pub.append(self.create_publisher(VoxelMapCompressed,
                                                             '/utlidar/voxel_map_compressed',
                                                             best_effort_qos))
-
+            if self.enable_audio:
+                self.audio_pub.append(self.create_publisher(
+                    AudioData,
+                    'audio',
+                    high_rate_qos,
+                    qos_overriding_options=QoSOverridingOptions.with_default_policies()))
+            
         else:
             for i in range(len(self.robot_ip_lst)):
                 self.joint_pub.append(self.create_publisher(
@@ -177,7 +193,13 @@ class RobotBaseNode(Node):
                         self.create_publisher(
                             VoxelMapCompressed, f'robot{i}/utlidar/voxel_map_compressed',
                             best_effort_qos))
-
+                if self.enable_audio:
+                    self.audio_pub.append(self.create_publisher(
+                        AudioData,
+                        f'robot{i}/audio',
+                        high_rate_qos,
+                        qos_overriding_options=QoSOverridingOptions.with_default_policies()))
+                    
         self.broadcaster = TransformBroadcaster(self, qos=qos_profile)
 
         self.bridge = CvBridge()
@@ -188,6 +210,7 @@ class RobotBaseNode(Node):
         self.robot_low_cmd = {}
         self.robot_sport_state = {}
         self.robot_lidar = {}
+        self.robot_audio = {}
         self.webrtc_msgs = asyncio.Queue()
 
         self.joy_state = Joy()
@@ -370,6 +393,18 @@ class RobotBaseNode(Node):
             self.camera_info_pub[robot_num].publish(camera_info)
             await asyncio.sleep(0)
 
+    async def on_audio_frame(self, track: MediaStreamTrack, robot_num):
+        logger.info(f"Audio frame received for robot {robot_num}")
+
+        while True:
+            frame = await track.recv()
+            audio = frame.to_ndarray()            
+            audio_data = AudioData()
+            audio_data.time_frame = self.get_clock().now().to_msg().sec
+            audio_data.data = audio.tobytes()
+            self.audio_pub[robot_num].publish(audio_data)
+            await asyncio.sleep(0)
+
     def on_data_channel_message(self, _, msg, robot_num):
 
         if msg.get('topic') == RTC_TOPIC["ULIDAR_ARRAY"]:
@@ -383,6 +418,11 @@ class RobotBaseNode(Node):
 
         if msg.get('topic') == RTC_TOPIC['LOW_STATE']:
             self.robot_low_cmd[robot_num] = msg
+        # # Get robot audio data
+        # if msg.get('topic') == RTC_TOPIC['AUDIO']:
+        #     self.robot_audio[robot_num] = msg
+        # else:
+        #     self.get_logger().debug(f"Received data topic: {msg.get('topic')}")
 
     def publish_odom_webrtc(self):
         for i in range(len(self.robot_odom)):
@@ -674,6 +714,7 @@ async def start_node():
             on_validated=base_node.on_validated,
             on_message=base_node.on_data_channel_message,
             on_video_frame=base_node.on_video_frame if base_node.enable_video else None,
+            on_audio_frame=base_node.on_audio_frame if base_node.enable_video else None,
             decode_lidar=base_node.decode_lidar,
         )
 

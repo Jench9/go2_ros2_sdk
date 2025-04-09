@@ -193,6 +193,7 @@ class Go2Connection():
             on_message=None,
             on_open=None,
             on_video_frame=None,
+            on_audio_frame=None,
             decode_lidar=True,
     ):
 
@@ -205,6 +206,7 @@ class Go2Connection():
         self.on_message = on_message
         self.on_open = on_open
         self.on_video_frame = on_video_frame
+        self.on_audio_frame = on_audio_frame
         self.decode_lidar = decode_lidar
 
         self.data_channel = self.pc.createDataChannel("data", id=0)
@@ -217,13 +219,21 @@ class Go2Connection():
         if self.on_video_frame:
             self.pc.addTransceiver("video", direction="recvonly")
 
+        if self.on_audio_frame:
+            self.pc.addTransceiver("audio", direction="recvonly")
+
     def on_connection_state_change(self):
         logger.info(f"Connection state is {self.pc.connectionState}")
 
     async def on_track(self, track):
         logger.info(f"Receiving {track.kind}")
         if track.kind == "audio":
-            pass
+            if self.on_audio_frame:
+                frame = await track.recv()
+                logger.info(f"Received frame {frame}")
+                await self.on_audio_frame(track, int(self.robot_num))
+            else:
+                pass
         elif track.kind == "video":
             if self.on_video_frame:
                 frame = await track.recv()
@@ -347,6 +357,12 @@ class Go2Connection():
                 "",
                 "on",
                 "vid",
+            )
+            # turn on audio
+            self.publish(
+                "",
+                "on",
+                "aud",
             )
 
             self.validation_result = "SUCCESS"

@@ -11,7 +11,7 @@ amcl:
     beam_skip_error_threshold: 0.9
     beam_skip_threshold: 0.3
     do_beamskip: false
-    global_frame_id: "odom"
+    global_frame_id: "map"
     lambda_short: 0.1
     laser_likelihood_max_dist: 2.0
     laser_max_range: 100.0
@@ -42,7 +42,7 @@ amcl:
 bt_navigator:
   ros__parameters:
     use_sim_time: False
-    global_frame: odom
+    global_frame: map
     robot_base_frame: base_link
     odom_topic: odom
     bt_loop_duration: 10
@@ -187,7 +187,7 @@ local_costmap:
       robot_base_frame: base_link
       use_sim_time: False
       rolling_window: true
-      width: 6
+      width: 6  # Adjust based on your robot's operating environment
       height: 6
       resolution: 0.05
       footprint: "[ [0.360, 0.200], [0.360, -0.200], [-0.450, -0.200], [-0.450, 0.200] ]"
@@ -215,15 +215,15 @@ local_costmap:
 
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
-        cost_scaling_factor: 1.0
-        inflation_radius: 0.1
+        cost_scaling_factor: 1.0  # Increase to make obstacles more "costly"
+        inflation_radius: 0.15 # Increase to create a larger buffer around obstacles
 
 global_costmap:
   global_costmap:
     ros__parameters:
       update_frequency: 1.0
       publish_frequency: 1.0
-      global_frame: odom
+      global_frame: map
       robot_base_frame: base_link
       use_sim_time: False
       resolution: 0.05
@@ -246,7 +246,7 @@ global_costmap:
         publish_voxel_map: True
         observation_sources: scan
         scan:
-          topic: scan
+          topic: /scan
           max_obstacle_height: 2.0
           clearing: True
           marking: True
@@ -259,7 +259,7 @@ global_costmap:
       inflation_layer:
         plugin: "nav2_costmap_2d::InflationLayer"
         cost_scaling_factor: 1.0
-        inflation_radius: 0.1
+        inflation_radius: 0.15
 
 map_server:
   ros__parameters:
